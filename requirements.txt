@@ -3,3 +3,4 @@ tensorflow
 scipy
 scikit-learn
 tabulate
+tqdm
