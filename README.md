@@ -36,7 +36,9 @@ fixed, s_i will effectively only indicate the direction, taking value in
 
 ## Defending the dataset
 
-Link to defense simulations or include them here.
+TODO:
+- Link to defense simulations or include them here. or
+- include defense simulators
 
 
 ## Preparing the data
