@@ -14,7 +14,7 @@ pip install -r requirements.txt
 or using conda
 
 ```
-conda create -n deepse
+conda create -n deepse python=3.8.5
 conda activate deepse
 conda install --file requirements.txt
 ```
