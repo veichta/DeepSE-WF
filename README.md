@@ -5,14 +5,13 @@ This is for evaluating Website Fingerprinting (WF) defenses, associated with the
 
 ## Installation
 
-The code works for Python 3.8.5.
+The code works for Python 3.8.5. First install the requirements using pip
 
 ```
-mkvirtualenv wfes
 pip install -r requirements.txt
 ```
 
-or when using conda
+or using conda
 
 ```
 conda create -n deepse python=3.8.5
