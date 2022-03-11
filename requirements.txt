@@ -1,0 +1,4 @@
+python=3.8.5
+scipy
+scikit-learn
+tabulate
