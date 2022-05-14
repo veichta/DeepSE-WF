@@ -1,21 +1,25 @@
 import argparse
 import logging
+import sys
+import os
+from tokenize import group
 
 import numpy as np
 import math
 
 import tensorflow as tf
 
-import sys
-
 from tabulate import tabulate
 from timeit import default_timer as timer
 from datetime import timedelta
 
+import wandb
+from wandb.keras import WandbCallback
+
 from sklearn.model_selection import StratifiedKFold as CV
 from sklearn.model_selection import train_test_split
 
-from utils.knn import compute_distance, knn_ber, knn_mi 
+from utils.knn import compute_distance, knn_ber, knn_mi
 
 
 REPRESENTATIONS = ['timing', 'directional']
@@ -37,12 +41,19 @@ def get_args_parser():
         help="Number of websites in the dataset")
 
     # Training
-    parser.add_argument('--epochs', default=40, type=int, 
+    parser.add_argument('--epochs', default=50, type=int, 
         help="Number of epochs used to train the attack model")
     parser.add_argument('--batch_size', default=128, type=int, 
         help="Batch size used to train the attack model")
     parser.add_argument('--feature_length', default=5000, type=int, 
         help="Length of each packet sequence")
+    parser.add_argument('--model', default="df", type=str, 
+        help="Model trained for the embeddings")
+    parser.add_argument('--early_stopping', default=False, type=bool, 
+        help="Use early stopping to avoid overfitting the model")
+    parser.add_argument('--defense', default="NoDef", type=str, 
+        help="Defense which is evaluated (used for logging only).")
+        
 
     # Logging
     parser.add_argument('--log_file', default='', type=str, 
@@ -129,7 +140,7 @@ def get_split(X, y, train_idx, test_idx):
     return data
 
 
-def build_model(input_shape, classes):
+def build_df_model(input_shape, classes):
     """This function builds the df attack model.
 
     Args:
@@ -179,7 +190,7 @@ def build_model(input_shape, classes):
     return m
 
 
-def train_models(X, y, args):
+def train_models(X, y, cv_count, args):
     """This function trains the DF and Tik-Tok attack.
 
     Args:
@@ -197,28 +208,51 @@ def train_models(X, y, args):
         y_train = y
         if representation == "directional": # create directional traces
             X_train = np.sign(X)
+
+        wandb.init(
+            project="DeepSE-WF", 
+            entity="bayes_error_security_wf",
+            config=vars(args),
+            group=os.environ["WANDB_GROUPNAME"],
+            job_type=f"train-{representation}",
+            name=f"eval-{representation}-fold{cv_count}"
+        )
         
         # build model
-        model = build_model(input_shape=(args.feature_length,1), classes=args.num_classes)
+        model = build_df_model(input_shape=(args.feature_length,1), classes=args.num_classes)
         
         # optimizer
         #optimizer = tf.keras.optimizers.Adamax(learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
         optimizer = tf.keras.optimizers.Adam(learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
         # compile model
         model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"])
+        
+        # early stopping
+        early_stopping = tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss",
+            min_delta=0,
+            patience=10,
+            verbose=0,
+            mode="auto",
+            baseline=None,
+            restore_best_weights=True,
+        )
 
         # fit model
         history = model.fit(X_train, y_train,
             batch_size=args.batch_size, 
             epochs=args.epochs,
-            verbose=args.verbose, 
-            #validation_split=0.2,
+            verbose=args.verbose,
+            callbacks=[early_stopping, WandbCallback()] if args.early_stopping else [WandbCallback()],
+            validation_split=0.1
         )
 
         models[representation] = model
 
         train_end = timer()
         logging.info(f" {representation} model ({timedelta(seconds=train_end-train_start)})")
+
+        wandb.join()
 
 
     return models
@@ -254,6 +288,11 @@ def eval_model(models, data, args):
         table[idx].append(score_test1[1])
         table[idx].append(score_test2[1])
         idx += 1
+
+        wandb.log({
+            f"train_acc_{representation}": score_train[1],
+            f"test_acc_{representation}": (score_test1[1] + score_test2[1]) / 2.0,
+        })
 
     logging.info(f"Evaluation Results:\n\n{tabulate(table, headers=['Model Features', 'Train Acc', 'Test1 Acc', 'Test2 Acc'], tablefmt='github')}\n")
 
@@ -327,13 +366,13 @@ def calc_ber(data, embeddings, args):
             dist = compute_distance(X_test1, X_test2, args.knn_measure)
             logging.debug("Test1")
             knn_est1 = knn_ber(dist, y_test1, y_test2)
-            logging.debug(f"BER: {knn_est1}")       
+            logging.debug(f"BER: {knn_est1}")
 
             # X_test2 for train
             dist = compute_distance(X_test2, X_test1, args.knn_measure)
             logging.debug("Test2")
             knn_est2 = knn_ber(dist, y_test2, y_test1)
-            logging.debug(f"BER: {knn_est2}\n")       
+            logging.debug(f"BER: {knn_est2}\n")
 
             ber_results[f"{representation}-{model_features_load}"] = (knn_est1 + knn_est2)/2
 
@@ -378,7 +417,7 @@ def calc_mi(data, embeddings, args):
 
             # X_test2 for train
             dist = compute_distance(X_test2, X_test1, args.knn_measure)
-            logging.debug("Test1")
+            logging.debug("Test2")
             knn_est2 = knn_mi(dist, y_test2, y_test1, args.mi_k) * np.log2(math.e)
             logging.debug(f"MI: {knn_est2}\n")  
 
@@ -405,7 +444,16 @@ def main(args):
 
         # train model
         logging.info(f"Train Models:")
-        models = train_models(data["X_train"], data["y_train"], args)
+        models = train_models(data["X_train"], data["y_train"], cv_count, args)
+
+        wandb.init(
+            project="DeepSE-WF", 
+            entity="bayes_error_security_wf",
+            config=vars(args),
+            group=os.environ["WANDB_GROUPNAME"],
+            job_type="eval",
+            name=f"eval-fold{cv_count}"
+        )
         
         eval_model(models, data, args)
 
@@ -421,13 +469,29 @@ def main(args):
         mi_results = calc_mi(data, embeddings, args)
         mi_estimations.append(max(mi_results.values()))
 
-
         end_cv = timer()
         logging.info(f"Bayes Error Rate is {min(ber_results.values()):.4f}")
         logging.info(f"Mutual Information is {max(mi_results.values()):.4f}")
         logging.info(f"Time CV {cv_count}: {timedelta(seconds=end_cv-start_cv)}\n\n")
 
+
+        wandb.log({
+            f"ber": min(ber_results.values()),
+            f"mi": max(mi_results.values())
+        })
+
+
         cv_count += 1
+        wandb.join()
+    
+    wandb.init(
+        project="DeepSE-WF", 
+        entity="bayes_error_security_wf",
+        config=vars(args),
+        group=os.environ["WANDB_GROUPNAME"],
+        job_type="eval",
+        name=f"summary"
+    )
 
 
     total_end = timer()
@@ -435,6 +499,13 @@ def main(args):
     logging.info(f"Bayes Error Rate is {np.mean(ber_estimations):.4f} (+-{np.std(ber_estimations):.4f})")
     logging.info(f"Mutual Information is {np.mean(mi_estimations):.4f} (+-{np.std(mi_estimations):.4f})")
     logging.info(f"Total Time: {timedelta(seconds=total_end-total_start)}\n\n")
+
+    wandb.log({
+        "overall_ber": np.mean(ber_estimations),
+        "overall_mi": np.mean(mi_estimations)
+    })
+
+    wandb.finish()
 
 
 if __name__ == '__main__':
@@ -445,6 +516,9 @@ if __name__ == '__main__':
         logging.basicConfig(filename=args.log_file, level=LOG_LVL)
     else:
         logging.basicConfig(stream=sys.stdout, level=LOG_LVL)
+
+    os.environ["WANDB_GROUPNAME"] = f"{args.model}-{args.defense}-{wandb.util.generate_id()}"
+    
 
     logging.info(f"Data Path: {args.data_path}")
     logging.info(f"Number of Traces: {args.n_traces}")
