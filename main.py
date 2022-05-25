@@ -47,12 +47,19 @@ def get_args_parser():
         help="Batch size used to train the attack model")
     parser.add_argument('--feature_length', default=5000, type=int, 
         help="Length of each packet sequence")
-    parser.add_argument('--model', default="df", type=str, 
-        help="Model trained for the embeddings")
     parser.add_argument('--early_stopping', default=False, type=bool, 
         help="Use early stopping to avoid overfitting the model")
-    parser.add_argument('--defense', default="NoDef", type=str, 
-        help="Defense which is evaluated (used for logging only).")
+
+    parser.add_argument('--model', default="df", type=str, 
+        help="Model trained for the embeddings")
+
+    parser.add_argument('--units', default=256, type=bool, 
+        help="Units used in awf lstm model.")
+    parser.add_argument('--dropout', default=0.1, type=float, 
+        help="Dropout used in awf models.")
+
+
+    
         
 
     # Logging
@@ -60,6 +67,8 @@ def get_args_parser():
         help="File for logging")
     parser.add_argument('--verbose', default=0, type=int, 
         help="Wheater to show the training progress")
+    parser.add_argument('--defense', default="NoDef", type=str, 
+        help="Defense which is evaluated (used for logging only).")
 
     # kNN
     parser.add_argument('--knn_measure', default="squared_l2", choices=["squared_l2", "cosine"], type=str, 
@@ -84,9 +93,10 @@ def load_data(data_path, args):
     label_path = "{}/labels.npy".format(data_path)
 
     # Load data
+    logging.info("Loading data...")
     X = np.load(trace_path)
     y = np.load(label_path)
-    
+
     # Convert data as float32 type
     X = X.astype('float32')
     y = y.astype('float32')
@@ -94,6 +104,7 @@ def load_data(data_path, args):
     # reduce dataset if necessary
     if args.n_traces * args.num_classes < len(y):
         X, _, y, _ = train_test_split(X, y, train_size=args.n_traces * args.num_classes, stratify=y, random_state=42)
+    logging.info("\tdone.")
 
     return X, y
 
@@ -190,6 +201,80 @@ def build_df_model(input_shape, classes):
     return m
 
 
+def build_awf_cnn(input_shape, classes):
+    kernel_size = 5
+    filters = 32
+    pool_size = 4
+
+    model = tf.keras.Sequential()
+
+    model.add(tf.keras.layers.Dropout(input_shape=input_shape, rate=args.dropout))
+
+    model.add(tf.keras.layers.Conv1D(filters=filters,
+                     kernel_size=kernel_size,
+                     padding='valid',
+                     activation='relu',
+                     strides=1))
+
+    model.add(tf.keras.layers.MaxPooling1D(pool_size=pool_size, padding='valid'))
+
+    model.add(tf.keras.layers.Conv1D(filters=filters,
+                     kernel_size=kernel_size,
+                     padding='valid',
+                     activation='relu',
+                     strides=1))
+
+    model.add(tf.keras.layers.MaxPooling1D(pool_size=pool_size, padding='valid'))
+
+    model.add(tf.keras.layers.Flatten())
+
+
+    # classification layers of df
+    model.add(tf.keras.layers.Dense(512, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+
+    model.add(tf.keras.layers.Dropout(0.5))
+
+    model.add(tf.keras.layers.Dense(classes, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
+    model.add(tf.keras.layers.Activation('softmax'))
+
+    model.build([None, input_shape])
+
+    return model
+
+
+def build_awf_lstm(input_shape, classes):
+    units = 256
+
+    model = tf.keras.Sequential()
+    model.add(tf.keras.layers.LSTM(input_shape=input_shape,
+                   units=units,
+                   activation='sigmoid',
+                   recurrent_activation='hard_sigmoid',
+                   return_sequences=True,
+                   dropout=args.dropout))
+
+    model.add(tf.keras.layers.LSTM(units=units,
+                   activation='sigmoid',
+                   recurrent_activation='hard_sigmoid',
+                   return_sequences=False,
+                   dropout=args.dropout))
+
+    model.add(tf.keras.layers.Dense(512, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
+    model.add(tf.keras.layers.BatchNormalization())
+    model.add(tf.keras.layers.Activation('relu'))
+
+    model.add(tf.keras.layers.Dropout(0.5))
+
+    model.add(tf.keras.layers.Dense(classes, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
+    model.add(tf.keras.layers.Activation('softmax'))
+
+    model.build([None, input_shape])
+
+    return model
+
+
 def train_models(X, y, cv_count, args):
     """This function trains the DF and Tik-Tok attack.
 
@@ -215,15 +300,22 @@ def train_models(X, y, cv_count, args):
             config=vars(args),
             group=os.environ["WANDB_GROUPNAME"],
             job_type=f"train-{representation}",
-            name=f"eval-{representation}-fold{cv_count}"
+            name=f"train-{representation}-fold{cv_count}"
         )
         
         # build model
-        model = build_df_model(input_shape=(args.feature_length,1), classes=args.num_classes)
+        if args.model == "df":
+            model = build_df_model(input_shape=(args.feature_length,1), classes=args.num_classes)
+        elif args.model == "awf_cnn":
+            model = build_awf_cnn(input_shape=(args.feature_length,1), classes=args.num_classes)
+        elif args.model == "awf_lstm":
+            model = build_awf_lstm(input_shape=(args.feature_length,1), classes=args.num_classes)
+        else:
+            raise f"Model ({args.model}) not implemented."
         
         # optimizer
-        #optimizer = tf.keras.optimizers.Adamax(learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
-        optimizer = tf.keras.optimizers.Adam(learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+        optimizer = tf.keras.optimizers.Adamax(learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+        #optimizer = tf.keras.optimizers.Adam(learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
         # compile model
         model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"])
         
@@ -518,7 +610,16 @@ if __name__ == '__main__':
         logging.basicConfig(stream=sys.stdout, level=LOG_LVL)
 
     os.environ["WANDB_GROUPNAME"] = f"{args.model}-{args.defense}-{wandb.util.generate_id()}"
-    
+
+    gpuid = 4
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"]=f"{gpuid}" #select ID of GPU that shall be used
+
+    gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=(11.5/12.0))
+
+    sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options))
+    logging.info('Using GPU with id: {} ({})'.format(gpuid, len(tf.config.list_physical_devices('GPU'))>0))
+
 
     logging.info(f"Data Path: {args.data_path}")
     logging.info(f"Number of Traces: {args.n_traces}")
