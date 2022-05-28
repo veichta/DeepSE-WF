@@ -1,81 +1,129 @@
+"""DeepSE-WF BER and MI estimation."""
 import argparse
 import logging
-import sys
+import math
 import os
-from tokenize import group
+import sys
+from datetime import timedelta
+from timeit import default_timer as timer
 
 import numpy as np
-import math
-
 import tensorflow as tf
-
-from tabulate import tabulate
-from timeit import default_timer as timer
-from datetime import timedelta
-
-import wandb
-from wandb.keras import WandbCallback
-
 from sklearn.model_selection import StratifiedKFold as CV
 from sklearn.model_selection import train_test_split
+from tabulate import tabulate
+from wandb.keras import WandbCallback
 
+import wandb
 from utils.knn import compute_distance, knn_ber, knn_mi
 
-
-REPRESENTATIONS = ['timing', 'directional']
+REPRESENTATIONS = ["timing", "directional"]
 
 LOG_LVL = logging.INFO
 
 
 def get_args_parser():
-    parser = argparse.ArgumentParser('DeepSE-WF BER and MI estiamtion', add_help=False)
-    
+    # fmt: off
+    """Get the arguments parser.
+
+    Returns:
+        parser: Arguments parser
+    """
+    parser = argparse.ArgumentParser("DeepSE-WF BER and MI estiamtion", add_help=False)
+
     # Data and Setup
-    parser.add_argument('--data_path', type=str, required=True, 
-        help="Path to data folder which should contain traces.npy and labels.npy")
-    parser.add_argument('--n_traces', type=int, required=True, 
-        help="Number of traces to use per website")
-    parser.add_argument('--k_fold', default=5, type=int, 
-        help="Number of cross-validation runs")
-    parser.add_argument('--num_classes', default=100, type=int, 
-        help="Number of websites in the dataset")
+    parser.add_argument(
+        "--data_path",
+        type=str, required=True,
+        help="Path to data folder which should contain traces.npy and labels.npy",
+    )
+    parser.add_argument(
+        "--n_traces",
+        type=int, required=True,
+        help="Number of traces to use per website",
+    )
+    parser.add_argument(
+        "--k_fold",
+        default=5, type=int,
+        help="Number of cross-validation runs"
+    )
+    parser.add_argument(
+        "--num_classes",
+        default=100, type=int,
+        help="Number of websites in the dataset"
+    )
 
     # Training
-    parser.add_argument('--epochs', default=50, type=int, 
-        help="Number of epochs used to train the attack model")
-    parser.add_argument('--batch_size', default=128, type=int, 
-        help="Batch size used to train the attack model")
-    parser.add_argument('--feature_length', default=5000, type=int, 
-        help="Length of each packet sequence")
-    parser.add_argument('--early_stopping', default=False, type=bool, 
-        help="Use early stopping to avoid overfitting the model")
-
-    parser.add_argument('--model', default="df", type=str, 
-        help="Model trained for the embeddings")
-
-    parser.add_argument('--units', default=256, type=bool, 
-        help="Units used in awf lstm model.")
-    parser.add_argument('--dropout', default=0.1, type=float, 
-        help="Dropout used in awf models.")
-
-
-    
-        
+    parser.add_argument(
+        "--epochs",
+        default=50, type=int,
+        help="Number of epochs used to train the attack model",
+    )
+    parser.add_argument(
+        "--batch_size",
+        default=128, type=int,
+        help="Batch size used to train the attack model",
+    )
+    parser.add_argument(
+        "--feature_length",
+        default=5000, type=int,
+        help="Length of each packet sequence",
+    )
+    parser.add_argument(
+        "--early_stopping",
+        default=False, type=bool,
+        help="Use early stopping to avoid overfitting the model",
+    )
+    parser.add_argument(
+        "--model",
+        default="df", type=str,
+        help="Model trained for the embeddings"
+    )
+    parser.add_argument(
+        "--units",
+        default=256, type=bool,
+        help="Units used in awf lstm model."
+    )
+    parser.add_argument(
+        "--dropout",
+        default=0.1, type=float,
+        help="Dropout used in awf models."
+    )
+    parser.add_argument(
+        "--embedding_size",
+        default=512, type=int,
+        help="Embedding size used in models."
+    )
 
     # Logging
-    parser.add_argument('--log_file', default='', type=str, 
-        help="File for logging")
-    parser.add_argument('--verbose', default=0, type=int, 
-        help="Wheater to show the training progress")
-    parser.add_argument('--defense', default="NoDef", type=str, 
-        help="Defense which is evaluated (used for logging only).")
+    parser.add_argument(
+        "--log_file",
+        default="", type=str,
+        help="File for logging"
+    )
+    parser.add_argument(
+        "--verbose",
+        default=0, type=int,
+        help="Wheater to show the training progress"
+    )
+    parser.add_argument(
+        "--defense",
+        default="NoDef", type=str,
+        help="Defense which is evaluated (used for logging only).",
+    )
 
     # kNN
-    parser.add_argument('--knn_measure', default="squared_l2", choices=["squared_l2", "cosine"], type=str, 
-        help="Measure used for KNN distance matrix computation")
-    parser.add_argument('--mi_k', default=5, type=int, 
-        help="Value for K of KNN in Mutual Information Estimation")
-    
+    parser.add_argument(
+        "--knn_measure",
+        default="squared_l2", choices=["squared_l2", "cosine"], type=str,
+        help="Measure used for KNN distance matrix computation",
+    )
+    parser.add_argument(
+        "--mi_k",
+        default=5, type=int,
+        help="Value for K of KNN in Mutual Information Estimation",
+    )
+    # fmt: on
     return parser
 
 
@@ -84,241 +132,155 @@ def load_data(data_path, args):
 
     Args:
         data_path: Data folder which should contain traces.npy and labels.npy
+        args: Arguments
+
     Returns:
-        X: Matrix (n_traces*n_classes x feature_length) containing the traces
+        x: Matrix (n_traces*n_classes x feature_length) containing the traces
         y: Array (n_traces*n_classes) containing the labels
     """
-    
-    trace_path = "{}/traces.npy".format(data_path)
-    label_path = "{}/labels.npy".format(data_path)
+    trace_path = f"{data_path}/traces.npy"
+    label_path = f"{data_path}/labels.npy"
 
     # Load data
     logging.info("Loading data...")
-    X = np.load(trace_path)
+    x = np.load(trace_path)
     y = np.load(label_path)
 
     # Convert data as float32 type
-    X = X.astype('float32')
-    y = y.astype('float32')
+    x = x.astype("float32")
+    y = y.astype("float32")
 
     # reduce dataset if necessary
     if args.n_traces * args.num_classes < len(y):
-        X, _, y, _ = train_test_split(X, y, train_size=args.n_traces * args.num_classes, stratify=y, random_state=42)
+        x, _, y, _ = train_test_split(
+            x,
+            y,
+            train_size=args.n_traces * args.num_classes,
+            stratify=y,
+            random_state=42,
+        )
     logging.info("\tdone.")
 
-    return X, y
+    return x, y
 
 
-def get_split(X, y, train_idx, test_idx):
-    """Get the validation splits of X and y.
+def get_split(x, y, train_idx, test_idx):
+    """Get the validation splits of x and y.
 
     Args:
-        X: traces matrix
+        x: traces matrix
         y: label array
         train_idx: index values for train data
         test_idx: index values for test data
+
     Returns:
-        data: Dictionary containing train, test1 and test2 data where a new axis is added for the traces
+        data: Dictionary containing train, test1 and test2
+              data where a new axis is added for the traces
     """
     # get correct split of data
-    X_train = np.array([v for i, v in enumerate(X) if i in train_idx]).astype('float32')
-    X_test = np.array([v for i, v in enumerate(X) if i in test_idx]).astype('float32')
-    
-    y_train = np.array([v for i, v in enumerate(y) if i in train_idx]).astype('float32')
-    y_test = np.array([v for i, v in enumerate(y) if i in test_idx]).astype('float32')
+    x_train = np.array([v for i, v in enumerate(x) if i in train_idx]).astype("float32")
+    x_test = np.array([v for i, v in enumerate(x) if i in test_idx]).astype("float32")
+
+    y_train = np.array([v for i, v in enumerate(y) if i in train_idx]).astype("float32")
+    y_test = np.array([v for i, v in enumerate(y) if i in test_idx]).astype("float32")
 
     # split test into tes1 and test2
-    X_test1, X_test2, y_test1, y_test2 = train_test_split(X_test, y_test, test_size=0.5, stratify=y_test, shuffle=True, random_state=42)
+    x_test1, x_test2, y_test1, y_test2 = train_test_split(
+        x_test, y_test, test_size=0.5, stratify=y_test, shuffle=True, random_state=42
+    )
 
     # we need a [Length x 1] x n shape as input to the CNN (Tensorflow)
-    X_train = X_train[:, :,np.newaxis].astype('float32')
-    X_test1 = X_test1[:, :,np.newaxis].astype('float32')
-    X_test2 = X_test2[:, :,np.newaxis].astype('float32')
+    x_train = x_train[:, :, np.newaxis].astype("float32")
+    x_test1 = x_test1[:, :, np.newaxis].astype("float32")
+    x_test2 = x_test2[:, :, np.newaxis].astype("float32")
 
     data = {
-        "X_train": X_train, 
-        "X_test1": X_test1,
-        "X_test2": X_test2, 
-        "y_train": y_train, 
-        "y_test1": y_test1, 
-        "y_test2": y_test2
+        "x_train": x_train,
+        "x_test1": x_test1,
+        "x_test2": x_test2,
+        "y_train": y_train,
+        "y_test1": y_test1,
+        "y_test2": y_test2,
     }
 
-    logging.debug(f'Train shape: {X_train.shape}')
-    logging.debug(f'Test1 shape: {X_test1.shape}')
-    logging.debug(f'Test2 shape: {X_test2.shape}')
+    logging.debug(f"Train shape: {x_train.shape}")
+    logging.debug(f"Test1 shape: {x_test1.shape}")
+    logging.debug(f"Test2 shape: {x_test2.shape}")
 
     return data
 
 
-def build_df_model(input_shape, classes):
-    """This function builds the df attack model.
-
-    Args:
-        input_shape: Shape of the input shape i.e. the trace
-        classes: Number of classes in the dataset
-    Returns:
-        model: Tensorflow keras sequential model which implements the DF attack neural network
-    """
-
-    m = tf.keras.Sequential()
-
-    for i, f in enumerate([32, 64, 128, 256]):
-      m.add(tf.keras.layers.Conv1D(filters=f, kernel_size=8, input_shape=input_shape, strides=1, padding='same'))
-      m.add(tf.keras.layers.BatchNormalization(axis=-1))
-      if i == 0:
-        m.add(tf.keras.layers.ELU(alpha=1.0))
-      else:
-        m.add(tf.keras.layers.Activation('relu'))
-      m.add(tf.keras.layers.Conv1D(filters=f, kernel_size=8, input_shape=input_shape, strides=1, padding='same'))
-      m.add(tf.keras.layers.BatchNormalization(axis=-1))
-      if i == 0:
-        m.add(tf.keras.layers.ELU(alpha=1.0))
-      else:
-        m.add(tf.keras.layers.Activation('relu'))
-      m.add(tf.keras.layers.MaxPool1D(8, 4, padding='same'))
-      m.add(tf.keras.layers.MaxPool1D(8, 4, padding='same'))
-      m.add(tf.keras.layers.Dropout(0.2))
-
-    m.add(tf.keras.layers.Flatten())
-    m.add(tf.keras.layers.Dense(512, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
-    m.add(tf.keras.layers.BatchNormalization())
-    m.add(tf.keras.layers.Activation('relu'))
-
-    m.add(tf.keras.layers.Dropout(0.7))
-
-    m.add(tf.keras.layers.Dense(512, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
-    m.add(tf.keras.layers.BatchNormalization())
-    m.add(tf.keras.layers.Activation('relu'))
-
-    m.add(tf.keras.layers.Dropout(0.5))
-
-    m.add(tf.keras.layers.Dense(classes, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
-    m.add(tf.keras.layers.Activation('softmax'))
-
-    m.build([None, input_shape])
-
-    return m
-
-
-def build_awf_cnn(input_shape, classes):
-    kernel_size = 5
-    filters = 32
-    pool_size = 4
-
-    model = tf.keras.Sequential()
-
-    model.add(tf.keras.layers.Dropout(input_shape=input_shape, rate=args.dropout))
-
-    model.add(tf.keras.layers.Conv1D(filters=filters,
-                     kernel_size=kernel_size,
-                     padding='valid',
-                     activation='relu',
-                     strides=1))
-
-    model.add(tf.keras.layers.MaxPooling1D(pool_size=pool_size, padding='valid'))
-
-    model.add(tf.keras.layers.Conv1D(filters=filters,
-                     kernel_size=kernel_size,
-                     padding='valid',
-                     activation='relu',
-                     strides=1))
-
-    model.add(tf.keras.layers.MaxPooling1D(pool_size=pool_size, padding='valid'))
-
-    model.add(tf.keras.layers.Flatten())
-
-
-    # classification layers of df
-    model.add(tf.keras.layers.Dense(512, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-
-    model.add(tf.keras.layers.Dropout(0.5))
-
-    model.add(tf.keras.layers.Dense(classes, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
-    model.add(tf.keras.layers.Activation('softmax'))
-
-    model.build([None, input_shape])
-
-    return model
-
-
-def build_awf_lstm(input_shape, classes):
-    units = 256
-
-    model = tf.keras.Sequential()
-    model.add(tf.keras.layers.LSTM(input_shape=input_shape,
-                   units=units,
-                   activation='sigmoid',
-                   recurrent_activation='hard_sigmoid',
-                   return_sequences=True,
-                   dropout=args.dropout))
-
-    model.add(tf.keras.layers.LSTM(units=units,
-                   activation='sigmoid',
-                   recurrent_activation='hard_sigmoid',
-                   return_sequences=False,
-                   dropout=args.dropout))
-
-    model.add(tf.keras.layers.Dense(512, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation('relu'))
-
-    model.add(tf.keras.layers.Dropout(0.5))
-
-    model.add(tf.keras.layers.Dense(classes, kernel_initializer=tf.keras.initializers.glorot_uniform(seed=0)))
-    model.add(tf.keras.layers.Activation('softmax'))
-
-    model.build([None, input_shape])
-
-    return model
-
-
-def train_models(X, y, cv_count, args):
+def train_models(x, y, cv_count, args):
     """This function trains the DF and Tik-Tok attack.
 
     Args:
-        input_shape: Shape of the input shape i.e. the trace
-        classes: Number of classes in the dataset
+        x: Traces
+        y: Webpage labels
+        cv_count: Number of cross validation folds
+        args: Arguments passed to the script
+
+    Raises:
+        NotImplementedError: If the attack is not implemented.
+
     Returns:
-        models: Dictionary containing the trained DF and Tik-Tok models as Tensorflow keras sequential.
+        models: Dictionary containing the trained models.
     """
     models = {}
 
     for representation in REPRESENTATIONS:
         train_start = timer()
 
-        X_train = X
+        x_train = x
         y_train = y
-        if representation == "directional": # create directional traces
-            X_train = np.sign(X)
+        if representation == "directional":  # create directional traces
+            x_train = np.sign(x)
 
         wandb.init(
-            project="DeepSE-WF", 
+            project="DeepSE-WF",
             entity="bayes_error_security_wf",
             config=vars(args),
             group=os.environ["WANDB_GROUPNAME"],
             job_type=f"train-{representation}",
-            name=f"train-{representation}-fold{cv_count}"
+            name=f"train-{representation}-fold{cv_count}",
         )
-        
+
         # build model
         if args.model == "df":
-            model = build_df_model(input_shape=(args.feature_length,1), classes=args.num_classes)
+            from models.df import build_df_model as build_model
+
+            model = build_model(
+                input_shape=(args.feature_length, 1), classes=args.num_classes, args=args
+            )
         elif args.model == "awf_cnn":
-            model = build_awf_cnn(input_shape=(args.feature_length,1), classes=args.num_classes)
-        elif args.model == "awf_lstm":
-            model = build_awf_lstm(input_shape=(args.feature_length,1), classes=args.num_classes)
+            from models.awf import build_awf_cnn_model as build_model
+
+            model = build_model(
+                input_shape=(args.feature_length, 1), classes=args.num_classes, args=args
+            )
+        elif args.model == "var_cnn":
+            from models.varcnn import build_var_cnn_model as build_model
+
+            time = representation != "directional"
+            model = build_model(
+                input_shape=(args.feature_length, 1), classes=args.num_classes, time=time, args=args
+            )
         else:
-            raise f"Model ({args.model}) not implemented."
-        
+            raise NotImplementedError(f"Model {args.model} not implemented.")
+
         # optimizer
-        optimizer = tf.keras.optimizers.Adamax(learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
-        #optimizer = tf.keras.optimizers.Adam(learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0)
+        # optimizer = tf.keras.optimizers.Adamax(
+        #     learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0
+        # )
+        optimizer = tf.keras.optimizers.Adam(
+            learning_rate=0.002, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0
+        )
         # compile model
-        model.compile(loss="sparse_categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"])
-        
+        model.compile(
+            loss="sparse_categorical_crossentropy",
+            optimizer=optimizer,
+            metrics=["accuracy"],
+        )
+
         # early stopping
         early_stopping = tf.keras.callbacks.EarlyStopping(
             monitor="val_loss",
@@ -330,13 +292,16 @@ def train_models(X, y, cv_count, args):
             restore_best_weights=True,
         )
 
+        cb = [early_stopping, WandbCallback()] if args.early_stopping else [WandbCallback()]
         # fit model
-        history = model.fit(X_train, y_train,
-            batch_size=args.batch_size, 
+        model.fit(
+            x_train,
+            y_train,
+            batch_size=args.batch_size,
             epochs=args.epochs,
             verbose=args.verbose,
-            callbacks=[early_stopping, WandbCallback()] if args.early_stopping else [WandbCallback()],
-            validation_split=0.1
+            callbacks=cb,
+            validation_split=0.1,
         )
 
         models[representation] = model
@@ -345,7 +310,6 @@ def train_models(X, y, cv_count, args):
         logging.info(f" {representation} model ({timedelta(seconds=train_end-train_start)})")
 
         wandb.join()
-
 
     return models
 
@@ -356,37 +320,39 @@ def eval_model(models, data, args):
     Args:
         models: Dictionary containing trained DF and Tik-Tok attack models
         data: Dictionary containing the train and test data
+        args: Arguments passed to the script
     """
+    x_train, y_train = data["x_train"], data["y_train"]
+    x_test1, y_test1 = data["x_test1"], data["y_test1"]
+    x_test2, y_test2 = data["x_test2"], data["y_test2"]
 
-    X_train, y_train = data["X_train"], data["y_train"]
-    X_test1, y_test1 = data["X_test1"], data["y_test1"]
-    X_test2, y_test2 = data["X_test2"], data["y_test2"]
+    table = [[representation] for representation in REPRESENTATIONS]  # table for logging
 
-    table = [[representation] for representation in REPRESENTATIONS] # table for logging
-
-    idx = 0
-    for representation in REPRESENTATIONS:
+    for idx, representation in enumerate(REPRESENTATIONS):
         if representation == "directional":
-            X_train = np.sign(X_train)
-            X_test1 = np.sign(X_test1)
-            X_test2 = np.sign(X_test2)
-        
+            x_train = np.sign(x_train)
+            x_test1 = np.sign(x_test1)
+            x_test2 = np.sign(x_test2)
+
         model = models[representation]
-        score_train = model.evaluate(X_train, y_train, verbose=args.verbose)
-        score_test1 = model.evaluate(X_test1, y_test1, verbose=args.verbose)
-        score_test2 = model.evaluate(X_test2, y_test2, verbose=args.verbose)
+        score_train = model.evaluate(x_train, y_train, verbose=args.verbose)
+        score_test1 = model.evaluate(x_test1, y_test1, verbose=args.verbose)
+        score_test2 = model.evaluate(x_test2, y_test2, verbose=args.verbose)
 
         table[idx].append(score_train[1])
         table[idx].append(score_test1[1])
         table[idx].append(score_test2[1])
-        idx += 1
+        wandb.log(
+            {
+                f"train_acc_{representation}": score_train[1],
+                f"test_acc_{representation}": (score_test1[1] + score_test2[1]) / 2.0,
+            }
+        )
 
-        wandb.log({
-            f"train_acc_{representation}": score_train[1],
-            f"test_acc_{representation}": (score_test1[1] + score_test2[1]) / 2.0,
-        })
-
-    logging.info(f"Evaluation Results:\n\n{tabulate(table, headers=['Model Features', 'Train Acc', 'Test1 Acc', 'Test2 Acc'], tablefmt='github')}\n")
+    table = tabulate(
+        table, headers=["Model Features", "Train Acc", "Test1 Acc", "Test2 Acc"], tablefmt="github"
+    )
+    logging.info(f"Evaluation Results:\n\n{table}\n")
 
 
 def extract_embeddings(models, data, args):
@@ -395,8 +361,10 @@ def extract_embeddings(models, data, args):
     Args:
         models: Dictionary containing trained DF and Tik-Tok attack models
         data: Dictionary containing the train and test data
+        args: Arguments
+
     Returns:
-        embeddings: Dictionary containing the embeddings for each combination of trace representation and trained model
+        embeddings: Dictionary containing the embeddings.
     """
     embeddings = {}
 
@@ -404,23 +372,33 @@ def extract_embeddings(models, data, args):
         model = models[representation]
 
         # remove the last layers of the model and save it
-        model.pop() # ReLU
-        model.pop() # Dropout
-        model.pop() # Dense
-        model.pop() # Softmax
+        if args.model == "var_cnn":
+            model.layers.pop()  # ReLu
+            model.layers.pop()  # Dropout
+            model.layers.pop()  # Dense
+            model.layers.pop()  # Softmax
+        else:
+            model.pop()  # ReLU
+            model.pop()  # Dropout
+            model.pop()  # Dense
+            model.pop()  # Softmax
 
         # extract embeddings
         for model_features_load in REPRESENTATIONS:
-            X_test1 = data["X_test1"]
-            X_test2 = data["X_test2"]
+            x_test1 = data["x_test1"]
+            x_test2 = data["x_test2"]
 
             if model_features_load == "directional":
-                X_test1 = np.sign(data["X_test1"])
-                X_test2 = np.sign(data["X_test2"])
+                x_test1 = np.sign(data["x_test1"])
+                x_test2 = np.sign(data["x_test2"])
 
-            embeddings[f"test1-{representation}-{model_features_load}"] = model.predict(X_test1, batch_size=args.batch_size, verbose=args.verbose)
-            embeddings[f"test2-{representation}-{model_features_load}"] = model.predict(X_test2, batch_size=args.batch_size, verbose=args.verbose)
-        
+            embeddings[f"test1-{representation}-{model_features_load}"] = model.predict(
+                x_test1, batch_size=args.batch_size, verbose=args.verbose
+            )
+            embeddings[f"test2-{representation}-{model_features_load}"] = model.predict(
+                x_test2, batch_size=args.batch_size, verbose=args.verbose
+            )
+
     return embeddings
 
 
@@ -430,43 +408,47 @@ def calc_ber(data, embeddings, args):
     Args:
         data: Dictionary containing the train and test data
         embeddings: Dictionary containing the extraced embddings of the traces
-    Returns:
-        Bayes Error Rate results: Dictionary containing the estimated Bayes Error Rate for all embeddings and raw representations
-    """
+        args: Arguments
 
+    Returns:
+        Bayes Error Rate results: Dictionary containing the estimated Bayes Error Rate.
+    """
     ber_results = {}
 
     for representation in REPRESENTATIONS:
-        for model_features_load in (['raw'] + REPRESENTATIONS):
+        for model_features_load in ["raw"] + REPRESENTATIONS:
             logging.debug(f"Combination: {representation}-{model_features_load}")
 
             # loading correct combination of data
             if model_features_load == "raw":
-                X_test1, X_test2 = data['X_test1'], data['X_test2']
-                y_test1, y_test2 = data['y_test1'], data['y_test2']
+                x_test1, x_test2 = data["x_test1"], data["x_test2"]
+                y_test1, y_test2 = data["y_test1"], data["y_test2"]
 
                 if representation == "directional":
-                    X_test1, X_test2 = np.sign(X_test1), np.sign(X_test2)
+                    x_test1, x_test2 = np.sign(x_test1), np.sign(x_test2)
             else:
-                X_test1, X_test2 = embeddings[f"test1-{representation}-{model_features_load}"], embeddings[f"test2-{representation}-{model_features_load}"]
-                y_test1, y_test2 = data['y_test1'], data['y_test2']
+                x_test1, x_test2 = (
+                    embeddings[f"test1-{representation}-{model_features_load}"],
+                    embeddings[f"test2-{representation}-{model_features_load}"],
+                )
+                y_test1, y_test2 = data["y_test1"], data["y_test2"]
 
-            X_test1 = X_test1.reshape(X_test1.shape[0], X_test1.shape[1])
-            X_test2 = X_test2.reshape(X_test2.shape[0], X_test2.shape[1])
+            x_test1 = x_test1.reshape(x_test1.shape[0], x_test1.shape[1])
+            x_test2 = x_test2.reshape(x_test2.shape[0], x_test2.shape[1])
 
-            # X_test1 for train
-            dist = compute_distance(X_test1, X_test2, args.knn_measure)
+            # x_test1 for train
+            dist = compute_distance(x_test1, x_test2, args.knn_measure)
             logging.debug("Test1")
             knn_est1 = knn_ber(dist, y_test1, y_test2)
             logging.debug(f"BER: {knn_est1}")
 
-            # X_test2 for train
-            dist = compute_distance(X_test2, X_test1, args.knn_measure)
+            # x_test2 for train
+            dist = compute_distance(x_test2, x_test1, args.knn_measure)
             logging.debug("Test2")
             knn_est2 = knn_ber(dist, y_test2, y_test1)
             logging.debug(f"BER: {knn_est2}\n")
 
-            ber_results[f"{representation}-{model_features_load}"] = (knn_est1 + knn_est2)/2
+            ber_results[f"{representation}-{model_features_load}"] = (knn_est1 + knn_est2) / 2
 
     return ber_results
 
@@ -477,76 +459,83 @@ def calc_mi(data, embeddings, args):
     Args:
         data: Dictionary containing the train and test data
         embeddings: Dictionary containing the extraced embddings of the traces
-    Returns:
-        Mutual Information results: Dictionary containing the estimated Mutual Information for all embeddings and raw representations
-    """
+        args: Arguments
 
+    Returns:
+        Mutual Information results: Dictionary containing the estimated Mutual Information.
+    """
     mi_results = {}
     y_test1 = np.array([int(y) for y in data["y_test1"]])
     y_test2 = np.array([int(y) for y in data["y_test2"]])
 
     for representation in REPRESENTATIONS:
-        for model_features_load in (['raw'] + REPRESENTATIONS):
+        for model_features_load in ["raw"] + REPRESENTATIONS:
             logging.debug(f"Combination: {representation}-{model_features_load}")
 
             # loading correct combination of data
             if model_features_load == "raw":
-                X_test1, X_test2 = data['X_test1'], data['X_test2']
+                x_test1, x_test2 = data["x_test1"], data["x_test2"]
 
                 if representation == "directional":
-                    X_test1, X_test2 = np.sign(X_test1), np.sign(X_test2)
+                    x_test1, x_test2 = np.sign(x_test1), np.sign(x_test2)
             else:
-                X_test1, X_test2 = embeddings[f"test1-{representation}-{model_features_load}"], embeddings[f"test2-{representation}-{model_features_load}"]
+                x_test1, x_test2 = (
+                    embeddings[f"test1-{representation}-{model_features_load}"],
+                    embeddings[f"test2-{representation}-{model_features_load}"],
+                )
 
-            X_test1 = X_test1.reshape(X_test1.shape[0], X_test1.shape[1])
-            X_test2 = X_test2.reshape(X_test2.shape[0], X_test2.shape[1])
+            x_test1 = x_test1.reshape(x_test1.shape[0], x_test1.shape[1])
+            x_test2 = x_test2.reshape(x_test2.shape[0], x_test2.shape[1])
 
-            # X_test1 for train
-            dist = compute_distance(X_test1, X_test2, args.knn_measure)
+            # x_test1 for train
+            dist = compute_distance(x_test1, x_test2, args.knn_measure)
             logging.debug("Test1")
-            knn_est1 = knn_mi(dist, y_test1, y_test2, args.mi_k) * np.log2(math.e)         
+            knn_est1 = knn_mi(dist, y_test1, y_test2, args.mi_k) * np.log2(math.e)
             logging.debug(f"MI: {knn_est1}")
 
-            # X_test2 for train
-            dist = compute_distance(X_test2, X_test1, args.knn_measure)
+            # x_test2 for train
+            dist = compute_distance(x_test2, x_test1, args.knn_measure)
             logging.debug("Test2")
             knn_est2 = knn_mi(dist, y_test2, y_test1, args.mi_k) * np.log2(math.e)
-            logging.debug(f"MI: {knn_est2}\n")  
+            logging.debug(f"MI: {knn_est2}\n")
 
-            mi_results[f"{representation}-{model_features_load}"] = (knn_est1 + knn_est2)/2
+            mi_results[f"{representation}-{model_features_load}"] = (knn_est1 + knn_est2) / 2
 
     return mi_results
 
 
 def main(args):
+    """Main function for estimating BER and MI.
+
+    Args:
+        args: Arguments
+    """
     total_start = timer()
     cv = CV(n_splits=args.k_fold, shuffle=True, random_state=42)
 
-    X, y = load_data(args.data_path, args)
-    
-    cv_count = 1
+    x, y = load_data(args.data_path, args)
 
     ber_estimations = []
     mi_estimations = []
 
-    for train_idx, test_idx in cv.split(X, y):
+    for cv_count, (train_idx, test_idx) in enumerate(cv.split(x, y), start=1):
         start_cv = timer()
-        logging.info(f'------------------- CV RUN {cv_count} OF {args.k_fold} -------------------')
-        data = get_split(X, y, train_idx, test_idx)
+        logging.info(f"------------------- CV RUN {cv_count} OF {args.k_fold} -------------------")
+        data = get_split(x, y, train_idx, test_idx)
 
         # train model
-        logging.info(f"Train Models:")
-        models = train_models(data["X_train"], data["y_train"], cv_count, args)
+        logging.info("Train Models:")
+        models = train_models(data["x_train"], data["y_train"], cv_count, args)
 
         wandb.init(
-            project="DeepSE-WF", 
+            project="DeepSE-WF",
             entity="bayes_error_security_wf",
             config=vars(args),
             group=os.environ["WANDB_GROUPNAME"],
             job_type="eval",
-            name=f"eval-fold{cv_count}"
+            name=f"eval-fold{cv_count}",
         )
-        
+
         eval_model(models, data, args)
 
         # extract all embeddings
@@ -566,42 +555,40 @@ def main(args):
         logging.info(f"Mutual Information is {max(mi_results.values()):.4f}")
         logging.info(f"Time CV {cv_count}: {timedelta(seconds=end_cv-start_cv)}\n\n")
 
+        wandb.log({"ber": min(ber_results.values()), "mi": max(mi_results.values())})
 
-        wandb.log({
-            f"ber": min(ber_results.values()),
-            f"mi": max(mi_results.values())
-        })
-
-
-        cv_count += 1
         wandb.join()
-    
+
     wandb.init(
-        project="DeepSE-WF", 
+        project="DeepSE-WF",
         entity="bayes_error_security_wf",
         config=vars(args),
         group=os.environ["WANDB_GROUPNAME"],
         job_type="eval",
-        name=f"summary"
+        name="summary",
     )
 
-
     total_end = timer()
-    logging.info(f'----------------------------- Final Results -----------------------------')
-    logging.info(f"Bayes Error Rate is {np.mean(ber_estimations):.4f} (+-{np.std(ber_estimations):.4f})")
-    logging.info(f"Mutual Information is {np.mean(mi_estimations):.4f} (+-{np.std(mi_estimations):.4f})")
+    logging.info("----------------------------- Final Results -----------------------------")
+
+    logging.info(
+        f"Bayes Error Rate is {np.mean(ber_estimations):.4f} (+-{np.std(ber_estimations):.4f})"
+    )
+    logging.info(
+        f"Mutual Information is {np.mean(mi_estimations):.4f} (+-{np.std(mi_estimations):.4f})"
+    )
     logging.info(f"Total Time: {timedelta(seconds=total_end-total_start)}\n\n")
 
-    wandb.log({
-        "overall_ber": np.mean(ber_estimations),
-        "overall_mi": np.mean(mi_estimations)
-    })
+    wandb.log({"overall_ber": np.mean(ber_estimations), "overall_mi": np.mean(mi_estimations)})
 
     wandb.finish()
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser('DeepSE-WF estiamtion of Bayes Error and Mutual Information', parents=[get_args_parser()])
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        "DeepSE-WF estiamtion of Bayes Error and Mutual Information",
+        parents=[get_args_parser()],
+    )
     args = parser.parse_args()
 
     if args.log_file:
@@ -611,15 +598,14 @@ if __name__ == '__main__':
 
     os.environ["WANDB_GROUPNAME"] = f"{args.model}-{args.defense}-{wandb.util.generate_id()}"
 
-    gpuid = 4
-    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"]=f"{gpuid}" #select ID of GPU that shall be used
+    # gpuid = 4
+    # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    # os.environ["CUDA_VISIBLE_DEVICES"] = f"{gpuid}"  # select ID of GPU that shall be used
 
-    gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=(11.5/12.0))
+    # gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=(11.5 / 12.0))
 
-    sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options))
-    logging.info('Using GPU with id: {} ({})'.format(gpuid, len(tf.config.list_physical_devices('GPU'))>0))
-
+    # sess = tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options))
+    # logging.info(f'Using GPU: {gpuid} ({len(tf.config.list_physical_devices("GPU")) > 0})')
 
     logging.info(f"Data Path: {args.data_path}")
     logging.info(f"Number of Traces: {args.n_traces}")
@@ -627,5 +613,3 @@ if __name__ == '__main__':
     logging.info(f"Using GPU: {len(tf.config.list_physical_devices('GPU'))>0}\n")
 
     main(args)
-
-
