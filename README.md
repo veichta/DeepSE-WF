@@ -36,7 +36,7 @@ conda env create -f environment.yml
 conda activate deepse
 ```
 
-If none of the above work, you may use [docker](https://www.docker.com) with the provided [Dockerfile](Dockerfile). The following commands will build the image and execute into the container. From there, you can run the commands as described below. Note that the performance of the docker container is significantly worse than the native installation. All data will be deleted when the container is stopped.
+If none of the above work, you may use [docker](https://www.docker.com) with the provided [Dockerfile](Dockerfile). The following commands will build the image and execute into the container. From there, you can run the commands as described below. Note that the performance of the docker container may be  worse than the native installation. All data will be deleted when the container is stopped.
 
 ```
 docker build -t deepse .
