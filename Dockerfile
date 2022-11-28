@@ -1,7 +1,5 @@
 FROM python:3.8-slim-buster
 
-COPY requirements.txt requirements.txt
-
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
@@ -14,7 +12,8 @@ WORKDIR /src
 RUN git clone https://github.com/veichta/DeepSE-WF.git
 WORKDIR /src/DeepSE-WF
 
-RUN pip install -r requirements.txt
+
+RUN python -m pip install --upgrade pip && pip install -r requirements.txt
 
 CMD ["bash"]
 
