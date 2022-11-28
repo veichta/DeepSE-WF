@@ -24,6 +24,8 @@ If you use this code or want to build on this research, please cite our paper:
 The code works for [Python 3.8.5](https://www.python.org/downloads/release/python-385/). First install the requirements using [pip](https://pip.pypa.io/en/stable/installation/)
 
 ```
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -48,23 +50,37 @@ Note: because this dataset represents Tor traffic, where packets' sizes are
 fixed, s_i will effectively only indicate the direction, taking value in
 {-1, +1}.
 
-## Downloading preprocesses dataset
+## Downloading Preprocesses Dataset
 The preprocessed awf dataset (100 websites and 4500 traces each) is available [here](https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z). It can also be downloaded using the following commands (**This will take about 22 GB of disk space**):
 
 ```
-mkdir -p data/datasets/awf
-wget -O data/datasets/awf/NoDef.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download?path=%2F&files=NoDef.npz
-wget -O data/datasets/awf/wtfpad.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download?path=%2F&files=wtfpad.npz
-wget -O data/datasets/awf/Front_T1.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download?path=%2F&files=Front_T1.npz
-wget -O data/datasets/awf/Front_T2.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download?path=%2F&files=Front_T2.npz
-wget -O data/datasets/awf/cs_buflo.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download?path=%2F&files=cs_buflo.npz
-wget -O data/datasets/awf/tamaraw.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download?path=%2F&files=tamaraw.npz
+mkdir -p data/dataset/awf
+wget -O data/dataset/awf/NoDef.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FAWF-100-4500\&files\=NoDef.npz
+wget -O data/dataset/awf/wtfpad.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FAWF-100-4500\&files\=wtfpad.npz
+wget -O data/dataset/awf/Front_T1.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FAWF-100-4500\&files\=Front_T1.npz
+wget -O data/dataset/awf/Front_T2.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FAWF-100-4500\&files\=Front_T2.npz
+wget -O data/dataset/awf/cs_buflo.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FAWF-100-4500\&files\=cs_buflo.npz
+wget -O data/dataset/awf/tamaraw.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FAWF-100-4500\&files\=tamaraw.npz
 ```
 
-Note that this will download the preprocessed traces in the `data/datasets/awf` folder. Once you have downloaded the dataset, you can directly run the experiments as described in [Measuring Security](#measuring-security).
+This will download the preprocessed traces in the `data/datasets/awf` folder.
+
+The DS19 dataset is available at the same link and can be downloaded using the following commands (**This will take about 1 GB of disk space**):
+
+```
+mkdir -p data/dataset/ds19
+wget -O data/dataset/ds19/NoDef.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FDS19-100-100\&files\=NoDef.npz
+wget -O data/dataset/ds19/wtfpad.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FDS19-100-100\&files\=wtfpad.npz
+wget -O data/dataset/ds19/Front_T1.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FDS19-100-100\&files\=Front_T1.npz
+wget -O data/dataset/ds19/Front_T2.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FDS19-100-100\&files\=Front_T2.npz
+wget -O data/dataset/ds19/cs_buflo.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FDS19-100-100\&files\=cs_buflo.npz
+wget -O data/dataset/ds19/tamaraw.npz https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z/download\?path\=%2FDS19-100-100\&files\=tamaraw.npz
+```
+
+Once you have downloaded the dataset, you can directly run the experiments as described in [Measuring Security](#measuring-security).
 
 ## Prepare the AWF Dataset
-The dataset by Rimmer et al. can be downloaded from [here](https://github.com/veichta/DeepSE-WF) or using the following command:
+The dataset by [Rimmer et al.](https://www.ndss-symposium.org/wp-content/uploads/2018/02/ndss2018_03A-1_Rimmer_paper.pdf) can be downloaded from [here](https://github.com/veichta/DeepSE-WF) or using the following command:
 
 ```
 wget <placeholder>
@@ -112,7 +128,7 @@ python preprocessing/create_nodef.py \
 This will first count the available traces and websites, and then create a new dataset with the specified number of websites and traces if enough websites/traces are available. The output directory will contain all traces in the form `$W-$T`, where `$W` is the website index and `$T` is the trace index (both starting from 0).
 
 ## Prepare the DS19 Dataset
-The dataset by Wang et al. can be downloaded from [here](https://www.cs.sfu.ca/~taowang/wf/index.html) or using the following command:
+The dataset by [Wang et al.](https://www.cs.sfu.ca/~taowang/wf/Go-FRONT.pdf) can be downloaded from [here](https://www.cs.sfu.ca/~taowang/wf/index.html) or using the following command:
 
 ```
 wget https://www.cs.sfu.ca/\~taowang/wf/20000.zip
@@ -145,7 +161,7 @@ bash simulate_defenses.sh <path-to-undefended-traces>
 e.g.
 
 ```
-bash simulate_defenses.sh data/traces/NoDef_awf
+bash simulate_defenses.sh ../data/traces/NoDef_awf
 ```
 
 Make sure that you are in the defense folder (```pwd``` should end with  ```DeepSE-WF/defenses```). This will run all defenses and store the results in the `data/defended` folder.
@@ -204,3 +220,6 @@ In order to recreate the plots, you may adapte the main function to store the re
 We use the codebase by [Cherubin et al](https://github.com/gchers/wfes) for the [wfes](https://www.petsymposium.org/2017/papers/issue4/paper50-2017-4-source.pdf) estimations as well as the [tamaraw](https://dl.acm.org/doi/10.1145/2660267.2660362) and [cs-buflo](https://dl.acm.org/doi/10.1145/2382196.2382260) defense implementations. We also use the codebase by [Gong et al.](https://github.com/websitefingerprinting/websitefingerprinting) for the [Front](https://www.usenix.org/conference/usenixsecurity20/presentation/gong) defense implementation as well as the codebase by [Rahman et al.](https://github.com/notem/reWeFDE) for the Mutual information estimation by [wefde](https://dl.acm.org/doi/10.1145/3243734.3243832).
 
 The [df](https://dl.acm.org/doi/10.1145/3243734.3243768) implementation is based on the [this](https://github.com/deep-fingerprinting/df) repository, the [awf](https://www.ndss-symposium.org/wp-content/uploads/2018/02/ndss2018_03A-1_Rimmer_paper.pdf) implementation is based on the [this](https://github.com/DistriNet/DLWF) repository and the [tf](https://dl.acm.org/doi/10.1145/3319535.3354217) implementation is based on the [this](https://github.com/triplet-fingerprinting/tf) repository. Finally, the [var_cnn](https://petsymposium.org/2019/files/papers/issue4/popets-2019-0070.pdf) implementation is based on the [this](https://github.com/sanjit-bhat/Var-CNN) repository.
+
+### Commit Hash
+The commit hash of the code used for the paper is ```c2a915f4117531ec7ae80092b4ccbefa51591479```.
