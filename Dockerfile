@@ -10,12 +10,11 @@ RUN apt-get update && apt-get install -y \
     wget
 
 WORKDIR /src
-RUN git clone https://github.com/veichta/DeepSE-WF.git
 
+RUN git clone https://github.com/veichta/DeepSE-WF.git
 WORKDIR /src/DeepSE-WF
 
-RUN python -m venv venv && \
-    pip install -r requirements.txt
+RUN pip install -r requirements.txt
 
 CMD ["bash"]
 
