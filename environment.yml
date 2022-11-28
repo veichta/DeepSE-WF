@@ -1,0 +1,12 @@
+name: deepse
+channels:
+  - conda-forge
+dependencies:
+  - python=3.8.5
+  - pytorch
+  - tabulate
+  - tqdm
+  - scikit-learn
+  - pandas
+  - matplotlib
+  - ipykernel
