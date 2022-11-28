@@ -18,6 +18,9 @@ logs_tf/**
 **.ipynb_checkpoints
 .vscode/**
 project.code-workspace
+**.ipython
+**.jupyter 
+**.local
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

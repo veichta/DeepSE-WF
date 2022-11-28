@@ -43,6 +43,14 @@ docker build -t deepse .
 docker run -it deepse
 ```
 
+In order to recreate the plots, run the following command:
+
+```
+docker run -p 8888:8888 -v $(pwd)/plots:/home/jovyan/ jupyter/scipy-notebook
+```
+
+This will start a jupyter notebook server. After the server has started, it will print a link to the console. Open this link in your browser. There you can find the notebook to recreate the plots.
+
 ## Dataset Format
 
 We consider the dataset collected to consist of files where each trace is stored in the form `$W-$T`, where `$W` is the website index and `$T` is the trace index (both starting from 0). For example, "1-3" is the fourth page load of the second website.
