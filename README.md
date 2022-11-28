@@ -43,7 +43,7 @@ docker build -t deepse .
 docker run -it deepse
 ```
 
-In order to recreate the plots, run the following command:
+If you are using docker and want to recreat the plots, run the following command:
 
 ```
 docker run -p 8888:8888 -v $(pwd)/plots:/home/jovyan/ jupyter/scipy-notebook
@@ -95,10 +95,28 @@ wget -O data/dataset/ds19/tamaraw.npz https://polybox.ethz.ch/index.php/s/2hyigd
 Once you have downloaded the dataset, you can directly run the experiments as described in [Measuring Security](#measuring-security).
 
 ## Prepare the AWF Dataset
-The dataset by [Rimmer et al.](https://www.ndss-symposium.org/wp-content/uploads/2018/02/ndss2018_03A-1_Rimmer_paper.pdf) can be downloaded from [here](https://github.com/veichta/DeepSE-WF) or using the following command:
+The dataset by [Rimmer et al.](https://www.ndss-symposium.org/wp-content/uploads/2018/02/ndss2018_03A-1_Rimmer_paper.pdf) can be downloaded from [here](https://distrinet.cs.kuleuven.be/software/tor-wf-dl/files/closed_world_csvs.tar.gz) or using the following command (**This will take about 90 GB of disk space**):
 
 ```
-wget <placeholder>
+wget https://distrinet.cs.kuleuven.be/software/tor-wf-dl/files/closed_world_csvs.tar.gz
+```
+
+Then, extract the collection of .tar.gz files using the following command (**This will take another 90 GB of disk space**):
+
+```
+tar -xvzf closed_world_csvs.tar.gz
+```
+
+Currently, ```tor_run_v1_000.tar.gz``` seems to be corrupted. You can remove it using the following command:
+
+```
+rm closed_world/tor_run_v1_000.tar.gz
+```
+
+In order to free up some space, you can remove the ```closed_world_csvs.tar.gz``` file using the following command:
+
+```
+rm closed_world_csvs.tar.gz
 ```
 
 The dataset is provided as a collection of .tar.gz files, each containing a set of websites and traces. The dataset can be extraced and cleaned using  [extract_awf_tar.py](preprocessing/extract_awf_tar.py):

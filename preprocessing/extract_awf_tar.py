@@ -71,7 +71,7 @@ def extract_tar(file, args):
                     continue
 
                 fname = member.name.split("/")[-1]
-                folder = member.name.split("/")[1]
+                folder = member.name.split("/")[-2]
 
                 if not os.path.exists(os.path.join(args.out_path, folder)):
                     os.makedirs(os.path.join(args.out_path, folder))
