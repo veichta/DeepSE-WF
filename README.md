@@ -21,7 +21,7 @@ If you use this code or want to build on this research, please cite our paper:
 
 ## Setup
 
-The code works for [Python 3.8.5](https://www.python.org/downloads/release/python-385/). First install the requirements using [pip](https://pip.pypa.io/en/stable/installation/)
+The code works for [Python 3.8.5](https://www.python.org/downloads/release/python-385/). All examples assume a unix shell. First install the requirements using [pip](https://pip.pypa.io/en/stable/installation/)
 
 ```
 python3 -m venv venv
@@ -34,6 +34,13 @@ or using [conda](https://docs.conda.io/en/latest/)
 ```
 conda env create -f environment.yml
 conda activate deepse
+```
+
+If none of the above work, you may use [docker](https://www.docker.com) with the provided [Dockerfile](Dockerfile). The following commands will build the image and execute into the container. From there, you can run the commands as described below. Note that the performance of the docker container is significantly worse than the native installation. All data will be deleted when the container is stopped.
+
+```
+docker build -t deepse .
+docker run -it deepse
 ```
 
 ## Dataset Format
