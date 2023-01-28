@@ -131,7 +131,7 @@ e.g.
   
 ```
 python preprocessing/extract_awf_tar.py \
-  --in_path /Downloads/awf_tar_files/ \
+  --in_path /Downloads/closed_world/ \
   --out_path data/awf
 ```
 
