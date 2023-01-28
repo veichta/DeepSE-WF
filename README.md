@@ -65,7 +65,7 @@ Note: because this dataset represents Tor traffic, where packets' sizes are
 fixed, s_i will effectively only indicate the direction, taking value in
 {-1, +1}.
 
-## Downloading Preprocesses Dataset
+## Downloading Preprocessed Dataset
 The preprocessed awf dataset (100 websites and 4500 traces each) is available [here](https://polybox.ethz.ch/index.php/s/2hyigdcNv33y33z). It can also be downloaded using the following commands (**This will take about 22 GB of disk space**):
 
 ```
@@ -167,11 +167,16 @@ The dataset by [Wang et al.](https://www.cs.sfu.ca/~taowang/wf/Go-FRONT.pdf) can
 wget https://www.cs.sfu.ca/\~taowang/wf/20000.zip
 ```
 
-In order to prepare the dataset, unzip and rename the folder to `data/traces/DS19`:
+In order to prepare the dataset, unzip the data:
 
 ```
 unzip 20000.zip
 rm 20000.zip
+```
+  
+Then, move the traces to a new folder `data/traces/DS19` and remove the old folder:
+  
+```
 mkdir -p data/traces/DS19
 mv 20000/*-*.cell data/traces/DS19
 rm -rf 20000
@@ -222,7 +227,7 @@ python preprocessing/create_dataset.py \
   --n_traces 100
 ```
 
-loads 100 website and 60 traces per website from from ```data/traces/NoDef``` and stores them into ```data/dataset/NoDef.npz```.
+loads 100 website and 100 traces per website from from ```data/traces/NoDef``` and stores them into ```data/dataset/NoDef.npz```.
 
 ## Measuring Security
 In order to estimate the security for a specific defense, simply run [main.py](main.py). The results will stored in the file specified by ``--log_file``. For example, we can estimate the security for the dataset from above as follows:
